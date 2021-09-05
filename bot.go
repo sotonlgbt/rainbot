@@ -16,6 +16,8 @@ import (
 	"github.com/diamondburned/arikawa/gateway"
 )
 
+var verifiedRoles map[discord.GuildID]*discord.Role
+
 type Bot struct {
 	// Context must not be embedded.
 	Ctx *bot.Context
@@ -78,12 +80,22 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 
 	if v == nil {
 		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.", nil)
-		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification")
+		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
 		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
 	}
 
 	if isDiscordAuthenticated(newMemberEvent.User) {
 		bot.Ctx.SendMessage(memberChannel.ID, "Thanks! You're now verified. Have a great day!", nil)
+
+		verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
+		if err != nil {
+			return err
+		}
+
+		err = bot.Ctx.AddRole(newMemberEvent.GuildID, newMemberEvent.User.ID, *verifiedRole)
+		if err != nil {
+			return err
+		}
 	} else {
 		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.", nil)
 		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Was not authenticated but claimed to be")
@@ -91,6 +103,27 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 	}
 
 	return nil
+}
+
+// getVerifiedRole gets either the cached or the new "verified" role for the server.
+func (bot *Bot) getVerifiedRole(guildID discord.GuildID) (*discord.RoleID, error) {
+	if verifiedRoles[guildID] != nil {
+		return &verifiedRoles[guildID].ID, nil
+	}
+
+	roles, err := bot.Ctx.Roles(guildID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, role := range roles {
+		if strings.EqualFold(role.Name, "verified") {
+			verifiedRoles[guildID] = &role
+			return &role.ID, nil
+		}
+	}
+
+	return nil, fmt.Errorf("No verified role found on server %d! Please ensure that there is a role on the server called 'verified', with case insensitive.", guildID)
 }
 
 // GuildInfo demonstrates the GuildOnly middleware done in (*Bot).Setup().
