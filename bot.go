@@ -16,7 +16,7 @@ import (
 	"github.com/diamondburned/arikawa/gateway"
 )
 
-var verifiedRoles map[discord.GuildID]*discord.Role
+var verifiedRoles map[discord.GuildID]*discord.Role = map[discord.GuildID]*discord.Role{}
 
 type Bot struct {
 	// Context must not be embedded.
@@ -53,7 +53,6 @@ func (bot *Bot) Say(_ *gateway.MessageCreateEvent, f bot.RawArguments) (string, 
 }
 
 func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMemberAddEvent) error {
-	log.Println(newMemberEvent.User.Username)
 	memberChannel, err := bot.Ctx.CreatePrivateChannel(newMemberEvent.User.ID)
 	if err != nil {
 		return err
@@ -67,7 +66,7 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 
 	// This might miss events that are sent immediately after. To make sure all
 	// events are caught, ChanFor should be used.
-	v := bot.Ctx.WaitFor(ctx, func(v interface{}) bool {
+	hasValidatedEvent := bot.Ctx.WaitFor(ctx, func(v interface{}) bool {
 		// Incoming event is a message create event:
 		mg, ok := v.(*gateway.MessageCreateEvent)
 		if !ok {
@@ -78,13 +77,14 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 		return mg.Author.ID == newMemberEvent.User.ID && mg.ChannelID == memberChannel.ID
 	})
 
-	if v == nil {
-		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.", nil)
-		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
-		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
+	var memberType StudentType
+	if newMemberEvent.GuildID.String() == alumni_server {
+		memberType = &Alumnus{}
+	} else {
+		memberType = &CurrentStudent{}
 	}
 
-	if isDiscordAuthenticated(newMemberEvent.User) {
+	if isDiscordAuthenticated(newMemberEvent.User, memberType) {
 		bot.Ctx.SendMessage(memberChannel.ID, "Thanks! You're now verified. Have a great day!", nil)
 
 		verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
@@ -96,6 +96,10 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 		if err != nil {
 			return err
 		}
+	} else if hasValidatedEvent == nil { // timed out
+		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.", nil)
+		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
+		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
 	} else {
 		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.", nil)
 		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Was not authenticated but claimed to be")

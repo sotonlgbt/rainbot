@@ -1,18 +1,28 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/diamondburned/arikawa/bot"
 )
 
 // To run, do `BOT_TOKEN="TOKEN HERE" go run .`
 
+// alumni_server stores the ID of the alumni server.
+var alumni_server string
+
 func main() {
 	var token = os.Getenv("BOT_TOKEN")
 	if token == "" {
 		log.Fatalln("No $BOT_TOKEN given.")
+	}
+
+	content, err := ioutil.ReadFile("alumni_server") // the file is inside the local directory
+	if err == nil {
+		alumni_server = strings.TrimSpace(string(content))
 	}
 
 	commands := &Bot{}
