@@ -47,7 +47,7 @@ func isDiscordAuthenticated(user discord.User, studentType StudentType) bool {
 func runGayauthCommand(command string, user discord.User) (string, error) {
 	artisan := filepath.Join(os.Getenv("AUTH_ROOT"), "artisan") // gets path to Laravel Artisan
 	if _, err := os.Stat(artisan); err != nil {
-		return "", fmt.Errorf("AUTH_ROOT is not set correctly or artisan is missing!")
+		return "", fmt.Errorf("AUTH_ROOT is not set correctly or artisan is missing")
 	}
 
 	generatorCommand := exec.Command(artisan, fmt.Sprintf("gayauth:%s", command), user.ID.String())

@@ -52,7 +52,97 @@ func (bot *Bot) Ping(*gateway.MessageCreateEvent) (string, error) {
 // }
 
 func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMemberAddEvent) error {
-	memberChannel, err := bot.Ctx.CreatePrivateChannel(newMemberEvent.User.ID)
+	return bot.verifyUser(newMemberEvent.User, newMemberEvent.GuildID)
+}
+
+func (bot *Bot) InteractionCreateEventProcessor(e *gateway.InteractionCreateEvent) error {
+	if e.Type == gateway.CommandInteraction && e.Data.Name == "verification_button" {
+		if e.GuildID == 0 {
+			// not in a guild? waa
+			return nil
+		}
+		guild, err := bot.Ctx.Guild(e.GuildID)
+		if err != nil {
+			return nil
+		}
+		if guild.OwnerID != e.Member.User.ID {
+			data := api.InteractionResponse{
+				Type: api.MessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Content: option.NewNullableString("You're not authorised to run that command :c sorry! Ask your server owner."),
+					Flags:   api.EphemeralResponse,
+				},
+			}
+
+			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
+				log.Println("failed to send interaction callback for failed interaction:", err)
+				return err
+			} else {
+				return nil
+			}
+		} else {
+			log.Println("doing the thing")
+
+			data := api.InteractionResponse{
+				Type: api.MessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
+					Components: &[]discord.Component{
+						&discord.ActionRowComponent{
+							Components: []discord.Component{
+								&discord.ButtonComponent{
+									CustomID: "verifyme_button",
+									Label:    "Let's get verified!",
+									Emoji: &discord.ButtonEmoji{
+										Name: "🎉",
+									},
+									Style: discord.PrimaryButton,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
+				log.Println("failed to send interaction callback:", err)
+				return err
+			} else {
+				return nil
+			}
+		}
+	} else if e.Type == gateway.ButtonInteraction && e.Data.CustomID == "verifyme_button" {
+		verifiedRole, err := bot.getVerifiedRole(e.GuildID)
+		if err != nil {
+			return err
+		}
+
+		if isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID)) {
+			data := api.InteractionResponse{
+				Type: api.MessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Content: option.NewNullableString("You're already registered, so all's good! Enjoy your day 😊"),
+					Flags:   api.EphemeralResponse,
+				},
+			}
+
+			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
+				log.Println("failed to send interaction callback for already-registered interaction:", err)
+				return err
+			} else {
+				return nil
+			}
+		} else {
+			bot.Ctx.RemoveRole(e.GuildID, e.Member.User.ID, *verifiedRole, "Pressed the button to verify themselves, not entitled to verification yet")
+			return bot.verifyUser(e.Member.User, e.GuildID)
+		}
+	} else {
+		return nil
+	}
+}
+
+func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
+	memberChannel, err := bot.Ctx.CreatePrivateChannel(user.ID)
 	if err != nil {
 		return err
 	}
@@ -68,7 +158,7 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 							Name: "🔑",
 						},
 						Style: discord.LinkButton,
-						URL:   getDiscordAuthLink(newMemberEvent.User),
+						URL:   getDiscordAuthLink(user),
 					},
 				},
 			},
@@ -105,7 +195,7 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 		ci, ok := v.(*gateway.InteractionCreateEvent)
 		if ok {
 			if ci.Type == gateway.ButtonInteraction && ci.ChannelID == memberChannel.ID &&
-				ci.User.ID == newMemberEvent.User.ID && ci.Data.CustomID == "verified_button" {
+				ci.User.ID == user.ID && ci.Data.CustomID == "verified_button" {
 				interactionToRespondTo = ci
 				return true
 			}
@@ -118,23 +208,16 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 		}
 
 		// Message is from the same author and is a DM:
-		return mg.Author.ID == newMemberEvent.User.ID && mg.ChannelID == memberChannel.ID
+		return mg.Author.ID == user.ID && mg.ChannelID == memberChannel.ID
 	})
 
-	var memberType StudentType
-	if newMemberEvent.GuildID.String() == alumni_server {
-		memberType = &Alumnus{}
-	} else {
-		memberType = &CurrentStudent{}
-	}
-
-	verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
+	verifiedRole, err := bot.getVerifiedRole(guildID)
 	if err != nil {
 		return err
 	}
 
-	if isDiscordAuthenticated(newMemberEvent.User, memberType) {
-		err = bot.Ctx.AddRole(newMemberEvent.GuildID, newMemberEvent.User.ID, *verifiedRole, api.AddRoleData{
+	if isDiscordAuthenticated(user, getMemberTypeForGuild(guildID)) {
+		err = bot.Ctx.AddRole(guildID, user.ID, *verifiedRole, api.AddRoleData{
 			AuditLogReason: "Verified successfully with the bot",
 		})
 		if err != nil {
@@ -159,7 +242,7 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 			bot.Ctx.SendMessage(memberChannel.ID, message)
 		}
 	} else if hasValidatedEvent == nil { // timed out
-		member, err := bot.Ctx.Member(newMemberEvent.GuildID, newMemberEvent.User.ID)
+		member, err := bot.Ctx.Member(guildID, user.ID)
 		if err != nil {
 			return err
 		}
@@ -174,12 +257,12 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 
 		// the member doesn't have the verified role - kick them.
 		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.")
-		bot.Ctx.Kick(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
-		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
+		bot.Ctx.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
+		return errors.New("timed out waiting for response, kicked " + user.Username)
 	} else {
 		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.")
-		bot.Ctx.Kick(newMemberEvent.GuildID, newMemberEvent.User.ID, "Was not authenticated but claimed to be")
-		return errors.New("invalid claim of authentication, kicked " + newMemberEvent.User.Username)
+		bot.Ctx.Kick(guildID, user.ID, "Was not authenticated but claimed to be")
+		return errors.New("invalid claim of authentication, kicked " + user.Username)
 	}
 
 	return nil
@@ -204,6 +287,18 @@ func (bot *Bot) getVerifiedRole(guildID discord.GuildID) (*discord.RoleID, error
 	}
 
 	return nil, fmt.Errorf("no verified role found on server %d! Please ensure that there is a role on the server called 'verified', with case insensitive", guildID)
+}
+
+// getMemberTypeForGuild takes a guild ID and gets the type of
+// student meant to be on that guild.
+func getMemberTypeForGuild(guildID discord.GuildID) StudentType {
+	var memberType StudentType
+	if guildID.String() == alumni_server {
+		memberType = &Alumnus{}
+	} else {
+		memberType = &CurrentStudent{}
+	}
+	return memberType
 }
 
 // // GuildInfo demonstrates the GuildOnly middleware done in (*Bot).Setup().

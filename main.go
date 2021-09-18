@@ -6,7 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/bot"
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/joho/godotenv"
 )
 
@@ -16,7 +18,6 @@ import (
 var alumni_server string
 
 func init() {
-
 	err := godotenv.Load(".env")
 
 	if err != nil {
@@ -28,6 +29,11 @@ func main() {
 	var token = os.Getenv("BOT_TOKEN")
 	if token == "" {
 		log.Fatalln("No $BOT_TOKEN given.")
+	}
+
+	appID, err := discord.ParseSnowflake(os.Getenv("APP_ID"))
+	if err != nil {
+		log.Fatalf("Invalid snowflake for $APP_ID: %v", err)
 	}
 
 	content, err := ioutil.ReadFile("alumni_server") // the file is inside the local directory
@@ -43,6 +49,21 @@ func main() {
 
 		// // Subcommand demo, but this can be in another package.
 		// ctx.MustRegisterSubcommand(&Debug{})
+
+		newCommands := []api.CreateCommandData{
+			{
+				Name:        "verification_button",
+				Description: "Inserts a verification button in the current channel - for server owners only!",
+			},
+		}
+
+		for _, command := range newCommands {
+			_, err := ctx.CreateCommand(discord.AppID(appID), command)
+			if err != nil {
+				log.Fatalln("failed to create command:", err)
+				return err
+			}
+		}
 
 		return nil
 	})
