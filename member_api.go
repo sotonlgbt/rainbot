@@ -44,14 +44,12 @@ func isDiscordAuthenticated(user discord.User, studentType StudentType) bool {
 
 // runGayauthCommand runs a command with the artisan console.
 func runGayauthCommand(command string, user discord.User) (string, error) {
-	generatorCommand := exec.Command("./artisan", fmt.Sprintf("gayauth:%s", command), user.ID.String())
-
-	artisan_dir, err := filepath.EvalSymlinks("artisan")
+	artisan, err := filepath.EvalSymlinks("artisan")
 	if err != nil {
 		return "", err
 	}
 
-	generatorCommand.Dir = filepath.Dir(artisan_dir)
+	generatorCommand := exec.Command(artisan, fmt.Sprintf("gayauth:%s", command), user.ID.String())
 
 	var out bytes.Buffer
 	generatorCommand.Stdout = &out
