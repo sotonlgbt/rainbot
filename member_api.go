@@ -36,7 +36,7 @@ func isDiscordAuthenticated(user discord.User, studentType StudentType) (bool, s
 		log.Fatalln(output, err)
 	}
 	for _, code := range studentType.codes() {
-		if code == output {
+		if strings.EqualFold(code, output) {
 			return true, output
 		}
 	}
