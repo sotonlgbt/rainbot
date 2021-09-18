@@ -7,12 +7,22 @@ import (
 	"strings"
 
 	"github.com/diamondburned/arikawa/v3/bot"
+	"github.com/joho/godotenv"
 )
 
 // To run, do `BOT_TOKEN="TOKEN HERE" go run .`
 
 // alumni_server stores the ID of the alumni server.
 var alumni_server string
+
+func init() {
+
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+}
 
 func main() {
 	var token = os.Getenv("BOT_TOKEN")
