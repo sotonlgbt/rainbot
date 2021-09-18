@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/diamondburned/arikawa/v3/discord"
@@ -45,10 +46,17 @@ func isDiscordAuthenticated(user discord.User, studentType StudentType) bool {
 func runGayauthCommand(command string, user discord.User) (string, error) {
 	generatorCommand := exec.Command("./artisan", fmt.Sprintf("gayauth:%s", command), user.ID.String())
 
+	artisan_dir, err := filepath.EvalSymlinks("artisan")
+	if err != nil {
+		return "", err
+	}
+
+	generatorCommand.Dir = filepath.Dir(artisan_dir)
+
 	var out bytes.Buffer
 	generatorCommand.Stdout = &out
 
-	err := generatorCommand.Run()
+	err = generatorCommand.Run()
 	if err != nil {
 		return "", err
 	}
