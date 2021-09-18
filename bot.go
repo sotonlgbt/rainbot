@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -197,14 +196,9 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 		},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*10)
-	defer cancel()
-
 	var interactionToRespondTo *gateway.InteractionCreateEvent
 
-	// This might miss events that are sent immediately after. To make sure all
-	// events are caught, ChanFor should be used.
-	hasValidatedEvent := bot.Ctx.WaitFor(ctx, func(v interface{}) bool {
+	hasValidatedEventChannel, cancelEventChannel := bot.Ctx.ChanFor(func(v interface{}) bool {
 		// Incoming event is a component interaction:
 		ci, ok := v.(*gateway.InteractionCreateEvent)
 		if ok {
@@ -224,6 +218,31 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 		// Message is from the same author and is a DM:
 		return mg.Author.ID == user.ID && mg.ChannelID == memberChannel.ID
 	})
+
+	halfElapsed := false
+	timedOut := false
+repeatSelect:
+	for {
+		select {
+		case <-hasValidatedEventChannel:
+			break repeatSelect
+		case <-time.After(time.Minute * 5):
+			if halfElapsed {
+				timedOut = true
+				break repeatSelect
+			} else {
+				isAuthenticated, _ := isDiscordAuthenticated(user, getMemberTypeForGuild(guildID))
+				if isAuthenticated {
+					break repeatSelect
+				} else {
+					halfElapsed = true
+					bot.Ctx.SendMessage(memberChannel.ID, "You've got five minutes left to verify - if you're not verified by then, you'll need to rejoin the server 😢 Having trouble? Message a committee member or email lgbt@soton.ac.uk.")
+				}
+			}
+		}
+	}
+
+	cancelEventChannel()
 
 	verifiedRole, err := bot.getVerifiedRole(guildID)
 	if err != nil {
@@ -298,7 +317,7 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 			},
 		}
 
-		if hasValidatedEvent == nil { // timed out
+		if timedOut {
 			member, err := bot.Ctx.Member(guildID, user.ID)
 			if err != nil {
 				return err
