@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diamondburned/arikawa/bot"
-	"github.com/diamondburned/arikawa/discord"
-	"github.com/diamondburned/arikawa/gateway"
+	"github.com/diamondburned/arikawa/v3/api"
+	"github.com/diamondburned/arikawa/v3/bot"
+	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/gateway"
+	"github.com/diamondburned/arikawa/v3/utils/json/option"
 )
 
 var verifiedRoles map[discord.GuildID]*discord.Role = map[discord.GuildID]*discord.Role{}
@@ -54,16 +56,61 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 	if err != nil {
 		return err
 	}
-	bot.Ctx.SendMessage(memberChannel.ID,
-		"Hi, welcome to the LGBTQ+ Society server! To verify that you're a student, please click here, and sign in within the next 10 minutes: "+getDiscordAuthLink(newMemberEvent.User),
-		nil)
+
+	bot.Ctx.SendMessageComplex(memberChannel.ID, api.SendMessageData{
+		Content: "Hi, welcome to the LGBTQ+ Society server! To verify that you're a student, please click here, and sign in within the next 10 minutes 😃",
+		Components: []discord.Component{
+			&discord.ActionRowComponent{
+				Components: []discord.Component{
+					&discord.ButtonComponent{
+						Label: "Click here to verify",
+						Emoji: &discord.ButtonEmoji{
+							Name: "🔑",
+						},
+						Style: discord.LinkButton,
+						URL:   getDiscordAuthLink(newMemberEvent.User),
+					},
+				},
+			},
+		},
+	})
+
+	bot.Ctx.SendMessageComplex(memberChannel.ID, api.SendMessageData{
+		Content: "Once you've verified, please click here!",
+		Components: []discord.Component{
+			&discord.ActionRowComponent{
+				Components: []discord.Component{
+					&discord.ButtonComponent{
+						Label:    "I've verified!",
+						CustomID: "verified_button",
+						Emoji: &discord.ButtonEmoji{
+							Name: "✔️",
+						},
+						Style: discord.SuccessButton,
+					},
+				},
+			},
+		},
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*10)
 	defer cancel()
 
+	var interactionToRespondTo *gateway.InteractionCreateEvent
+
 	// This might miss events that are sent immediately after. To make sure all
 	// events are caught, ChanFor should be used.
 	hasValidatedEvent := bot.Ctx.WaitFor(ctx, func(v interface{}) bool {
+		// Incoming event is a component interaction:
+		ci, ok := v.(*gateway.InteractionCreateEvent)
+		if ok {
+			if ci.Type == gateway.ButtonInteraction && ci.ChannelID == memberChannel.ID &&
+				ci.User.ID == newMemberEvent.User.ID && ci.Data.CustomID == "verified_button" {
+				interactionToRespondTo = ci
+				return true
+			}
+		}
+
 		// Incoming event is a message create event:
 		mg, ok := v.(*gateway.MessageCreateEvent)
 		if !ok {
@@ -82,24 +129,42 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 	}
 
 	if isDiscordAuthenticated(newMemberEvent.User, memberType) {
-		bot.Ctx.SendMessage(memberChannel.ID, "Thanks! You're now verified. Have a great day!", nil)
-
 		verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
 		if err != nil {
 			return err
 		}
 
-		err = bot.Ctx.AddRole(newMemberEvent.GuildID, newMemberEvent.User.ID, *verifiedRole)
+		err = bot.Ctx.AddRole(newMemberEvent.GuildID, newMemberEvent.User.ID, *verifiedRole, api.AddRoleData{
+			AuditLogReason: "Verified successfully with the bot",
+		})
 		if err != nil {
 			return err
 		}
+
+		const message = "Thanks! You're now verified. Have a great day!"
+
+		if interactionToRespondTo != nil {
+			data := api.InteractionResponse{
+				Type: api.UpdateMessage,
+				Data: &api.InteractionResponseData{
+					Content:    option.NewNullableString(message),
+					Components: &[]discord.Component{},
+				},
+			}
+
+			if err := bot.Ctx.RespondInteraction(interactionToRespondTo.ID, interactionToRespondTo.Token, data); err != nil {
+				log.Println("failed to send interaction callback:", err)
+			}
+		} else {
+			bot.Ctx.SendMessage(memberChannel.ID, message)
+		}
 	} else if hasValidatedEvent == nil { // timed out
-		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.", nil)
-		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
+		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.")
+		bot.Ctx.Kick(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
 		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
 	} else {
-		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.", nil)
-		bot.Ctx.KickWithReason(newMemberEvent.GuildID, newMemberEvent.User.ID, "Was not authenticated but claimed to be")
+		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.")
+		bot.Ctx.Kick(newMemberEvent.GuildID, newMemberEvent.User.ID, "Was not authenticated but claimed to be")
 		return errors.New("invalid claim of authentication, kicked " + newMemberEvent.User.Username)
 	}
 

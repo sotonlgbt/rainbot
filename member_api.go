@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/diamondburned/arikawa/discord"
+	"github.com/diamondburned/arikawa/v3/discord"
 )
 
 // getDiscordAuthLink returns the Discord authentication link
