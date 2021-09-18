@@ -117,7 +117,8 @@ func (bot *Bot) InteractionCreateEventProcessor(e *gateway.InteractionCreateEven
 			return err
 		}
 
-		if isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID)) {
+		authenticated, _ := isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID))
+		if authenticated {
 			data := api.InteractionResponse{
 				Type: api.MessageInteractionWithSource,
 				Data: &api.InteractionResponseData{
@@ -134,7 +135,20 @@ func (bot *Bot) InteractionCreateEventProcessor(e *gateway.InteractionCreateEven
 			}
 		} else {
 			bot.Ctx.RemoveRole(e.GuildID, e.Member.User.ID, *verifiedRole, "Pressed the button to verify themselves, not entitled to verification yet")
-			return bot.verifyUser(e.Member.User, e.GuildID)
+			data := api.InteractionResponse{
+				Type: api.MessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Content: option.NewNullableString("Check your DMs to complete verification!"),
+					Flags:   api.EphemeralResponse,
+				},
+			}
+
+			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
+				log.Println("failed to send interaction callback for failed interaction:", err)
+				return err
+			} else {
+				return bot.verifyUser(e.Member.User, e.GuildID)
+			}
 		}
 	} else {
 		return nil
@@ -216,9 +230,10 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 		return err
 	}
 
-	if isDiscordAuthenticated(user, getMemberTypeForGuild(guildID)) {
+	isAuthenticated, memberCode := isDiscordAuthenticated(user, getMemberTypeForGuild(guildID))
+	if isAuthenticated {
 		err = bot.Ctx.AddRole(guildID, user.ID, *verifiedRole, api.AddRoleData{
-			AuditLogReason: "Verified successfully with the bot",
+			AuditLogReason: api.AuditLogReason(fmt.Sprintf("Verified successfully with the bot as %s", memberCode)),
 		})
 		if err != nil {
 			return err
@@ -241,28 +256,77 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 		} else {
 			bot.Ctx.SendMessage(memberChannel.ID, message)
 		}
-	} else if hasValidatedEvent == nil { // timed out
-		member, err := bot.Ctx.Member(guildID, user.ID)
+	} else {
+		guildChannels, err := bot.Ctx.Channels(guildID)
 		if err != nil {
 			return err
 		}
 
-		for _, roleID := range member.RoleIDs {
-			if roleID == *verifiedRole {
-				// the member was verified manually - ignore them
-				bot.Ctx.SendMessage(memberChannel.ID, "Looks like you were verified manually! Clipping through the map 😉 see ya!")
-				return nil
+		var inviteChannel discord.Channel
+		// start off with a ridiculous position - our first channel must be below this.
+		var lowestChannelPosition int = 10000
+		for _, channel := range guildChannels {
+			if channel.Type == discord.GuildText && lowestChannelPosition > channel.Position {
+				inviteChannel = channel
+				lowestChannelPosition = channel.Position
 			}
 		}
 
-		// the member doesn't have the verified role - kick them.
-		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.")
-		bot.Ctx.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
-		return errors.New("timed out waiting for response, kicked " + user.Username)
-	} else {
-		bot.Ctx.SendMessage(memberChannel.ID, "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again.")
-		bot.Ctx.Kick(guildID, user.ID, "Was not authenticated but claimed to be")
-		return errors.New("invalid claim of authentication, kicked " + user.Username)
+		invite, err := bot.Ctx.CreateInvite(inviteChannel.ID, api.CreateInviteData{
+			MaxUses:        1,
+			Unique:         true,
+			AuditLogReason: api.AuditLogReason(fmt.Sprintf("%s failed authentication, so creating them an easy re-invite link", user.Username)),
+		})
+		if err != nil {
+			return err
+		}
+
+		reinviteMessageData := api.SendMessageData{
+			Components: []discord.Component{
+				&discord.ActionRowComponent{
+					Components: []discord.Component{
+						&discord.ButtonComponent{
+							Label: "Let's try again",
+							Emoji: &discord.ButtonEmoji{
+								Name: "😢",
+							},
+							Style: discord.LinkButton,
+							URL:   fmt.Sprintf("https://discord.gg/%s", invite.Code),
+						},
+					},
+				},
+			},
+		}
+
+		if hasValidatedEvent == nil { // timed out
+			member, err := bot.Ctx.Member(guildID, user.ID)
+			if err != nil {
+				return err
+			}
+
+			for _, roleID := range member.RoleIDs {
+				if roleID == *verifiedRole {
+					// the member was verified manually - ignore them
+					bot.Ctx.SendMessage(memberChannel.ID, "Looks like you were verified manually! Clipping through the map 😉 see ya!")
+					return nil
+				}
+			}
+
+			// the member doesn't have the verified role - kick them.
+			reinviteMessageData.Content = "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again."
+			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			bot.Ctx.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
+			return errors.New("timed out waiting for response, kicked " + user.Username)
+		} else {
+			reinviteMessageData.Content = "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again."
+			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			if memberCode == "" {
+				bot.Ctx.Kick(guildID, user.ID, "Claimed to be authenticated but was not in fact registered")
+			} else {
+				bot.Ctx.Kick(guildID, user.ID, api.AuditLogReason(fmt.Sprintf("Was not authenticated successfully - authenticated as %s which is invalid for this guild", memberCode)))
+			}
+			return errors.New("invalid claim of authentication, kicked " + user.Username)
+		}
 	}
 
 	return nil

@@ -26,21 +26,21 @@ func getDiscordAuthLink(user discord.User) string {
 // isDiscordAuthenticated checks whether a user is authenticated
 // in the database for Discord for a specific student type, and returns
 // true if they are, or false otherwise.
-func isDiscordAuthenticated(user discord.User, studentType StudentType) bool {
+func isDiscordAuthenticated(user discord.User, studentType StudentType) (bool, string) {
 	output, err := runGayauthCommand("verifyDiscordAuth", user)
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
 			log.Println(exitError)
-			return false
+			return false, ""
 		}
 		log.Fatalln(output, err)
 	}
 	for _, code := range studentType.codes() {
 		if code == output {
-			return true
+			return true, output
 		}
 	}
-	return false
+	return false, output
 }
 
 // runGayauthCommand runs a command with the artisan console.
