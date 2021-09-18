@@ -128,12 +128,12 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 		memberType = &CurrentStudent{}
 	}
 
-	if isDiscordAuthenticated(newMemberEvent.User, memberType) {
-		verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
-		if err != nil {
-			return err
-		}
+	verifiedRole, err := bot.getVerifiedRole(newMemberEvent.GuildID)
+	if err != nil {
+		return err
+	}
 
+	if isDiscordAuthenticated(newMemberEvent.User, memberType) {
 		err = bot.Ctx.AddRole(newMemberEvent.GuildID, newMemberEvent.User.ID, *verifiedRole, api.AddRoleData{
 			AuditLogReason: "Verified successfully with the bot",
 		})
@@ -159,6 +159,20 @@ func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMember
 			bot.Ctx.SendMessage(memberChannel.ID, message)
 		}
 	} else if hasValidatedEvent == nil { // timed out
+		member, err := bot.Ctx.Member(newMemberEvent.GuildID, newMemberEvent.User.ID)
+		if err != nil {
+			return err
+		}
+
+		for _, roleID := range member.RoleIDs {
+			if roleID == *verifiedRole {
+				// the member was verified manually - ignore them
+				bot.Ctx.SendMessage(memberChannel.ID, "Looks like you were verified manually! Clipping through the map 😉 see ya!")
+				return nil
+			}
+		}
+
+		// the member doesn't have the verified role - kick them.
 		bot.Ctx.SendMessage(memberChannel.ID, "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again.")
 		bot.Ctx.Kick(newMemberEvent.GuildID, newMemberEvent.User.ID, "Timed out without verification, took too long to verify")
 		return errors.New("timed out waiting for response, kicked " + newMemberEvent.User.Username)
