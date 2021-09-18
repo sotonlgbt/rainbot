@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -44,9 +45,9 @@ func isDiscordAuthenticated(user discord.User, studentType StudentType) bool {
 
 // runGayauthCommand runs a command with the artisan console.
 func runGayauthCommand(command string, user discord.User) (string, error) {
-	artisan, err := filepath.EvalSymlinks("artisan")
-	if err != nil {
-		return "", err
+	artisan := filepath.Join(os.Getenv("AUTH_ROOT"), "artisan") // gets path to Laravel Artisan
+	if _, err := os.Stat(artisan); err != nil {
+		return "", fmt.Errorf("AUTH_ROOT is not set correctly or artisan is missing!")
 	}
 
 	generatorCommand := exec.Command(artisan, fmt.Sprintf("gayauth:%s", command), user.ID.String())
@@ -54,7 +55,7 @@ func runGayauthCommand(command string, user discord.User) (string, error) {
 	var out bytes.Buffer
 	generatorCommand.Stdout = &out
 
-	err = generatorCommand.Run()
+	err := generatorCommand.Run()
 	if err != nil {
 		return "", err
 	}
