@@ -118,12 +118,10 @@ func (bot *Bot) InteractionCreateEventProcessor(e *gateway.InteractionCreateEven
 
 		authenticated, memberType := isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID))
 		if authenticated {
-			err = bot.Ctx.AddRole(e.GuildID, e.Member.User.ID, *verifiedRole, api.AddRoleData{
+			// Optionally add the role if they aren't already owning it - so ignore errors here!
+			bot.Ctx.AddRole(e.GuildID, e.Member.User.ID, *verifiedRole, api.AddRoleData{
 				AuditLogReason: api.AuditLogReason(fmt.Sprintf("Pre-registered, button verified with the bot as %s", memberType)),
 			})
-			if err != nil {
-				return err
-			}
 
 			data := api.InteractionResponse{
 				Type: api.MessageInteractionWithSource,
