@@ -342,13 +342,14 @@ repeatSelect:
 			bot.Ctx.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
 			return errors.New("timed out waiting for response, kicked " + user.Username)
 		} else {
-			reinviteMessageData.Content = "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again."
-			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
 			if memberCode == "" {
+				reinviteMessageData.Content = "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again."
 				bot.Ctx.Kick(guildID, user.ID, "Claimed to be authenticated but was not in fact registered")
 			} else {
+				reinviteMessageData.Content = "Hmm - that doesn't look like you have the right type of University account for this server. If you've recently graduated, you may need to get a committee member to manually verify you (lgbt@soton.ac.uk), or contact iSolutions to get them to correct your account. Otherwise, please try joining the server again."
 				bot.Ctx.Kick(guildID, user.ID, api.AuditLogReason(fmt.Sprintf("Was not authenticated successfully - authenticated as %s which is invalid for this guild", memberCode)))
 			}
+			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
 			return errors.New("invalid claim of authentication, kicked " + user.Username)
 		}
 	}
