@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -15,66 +16,125 @@ import (
 
 var verifiedRoles map[discord.GuildID]*discord.Role = map[discord.GuildID]*discord.Role{}
 
+const colour_button_prefix = "colour_button_"
+const pronoun_button_prefix = "pronoun_button_"
+
 type Bot struct {
 	State *state.State
+}
+
+// CreatePronounPicker is run by the interaction event dispatcher when the command
+// to create a pronoun picker in the current channel is activated.
+func (bot *Bot) CreatePronounPicker(e *gateway.InteractionCreateEvent, guild discord.Guild) error {
+	// the event dispatcher has already checked we're in a guild, etc.
+	pronounComponents := []discord.Component{}
+
+	for _, pronoun := range config.Pronouns {
+		pronounComponents = append(pronounComponents, &discord.ButtonComponent{
+			CustomID: pronoun_button_prefix + pronoun,
+			Label:    pronoun,
+			Style:    discord.SecondaryButton,
+		})
+	}
+
+	data := api.InteractionResponse{
+		Type: api.MessageInteractionWithSource,
+		Data: &api.InteractionResponseData{
+			Content: option.NewNullableString("👋 What pronouns do you use?"),
+			Components: &[]discord.Component{
+				&discord.ActionRowComponent{
+					Components: pronounComponents,
+				},
+			},
+		},
+	}
+
+	if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+		log.Println("failed to send interaction callback in pronoun picker:", err)
+		return err
+	} else {
+		return nil
+	}
+}
+
+// CreateColourPicker is run by the interaction event dispatcher when the command
+// to create a colour picker in the current channel is activated.
+func (bot *Bot) CreateColourPicker(e *gateway.InteractionCreateEvent, guild discord.Guild) error {
+	// the event dispatcher has already checked we're in a guild, etc.
+	colourActionRows := []discord.Component{}
+
+	// Each row can only hold five components, so we need to do this for
+	// ceil(n/5) times.
+	for i := 0; i < int(math.Ceil(float64(len(config.Guilds[guild.ID].Colours))/5)); i++ {
+		actionRowComponents := []discord.Component{}
+
+		limit := 5
+		// Reduce the limit if we have less than 5 colours left
+		if len(config.Guilds[guild.ID].Colours)-(i*5) < 5 {
+			limit = len(config.Guilds[guild.ID].Colours) - (i * 5)
+		}
+
+		// j will start at 0, then go up to 4. next time, it starts at 5
+		for j := i * 5; j < (i*5)+limit; j++ {
+			colour := config.Guilds[guild.ID].Colours[j]
+			actionRowComponents = append(actionRowComponents, &discord.ButtonComponent{
+				CustomID: colour_button_prefix + colour,
+				Label:    strings.Title(colour),
+				Style:    discord.SecondaryButton,
+			})
+		}
+
+		colourActionRows = append(colourActionRows, &discord.ActionRowComponent{
+			Components: actionRowComponents,
+		})
+	}
+
+	data := api.InteractionResponse{
+		Type: api.MessageInteractionWithSource,
+		Data: &api.InteractionResponseData{
+			Content:    option.NewNullableString("🎨 Pick a colour for your username!"),
+			Components: &colourActionRows,
+		},
+	}
+
+	if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+		log.Println("failed to send interaction callback in colour picker:", err)
+		return err
+	} else {
+		return nil
+	}
 }
 
 // CreateVerificationButton is run by the interaction event dispatcher when the command
 // to create a verification button in the current channel is activated.
 func (bot *Bot) CreateVerificationButton(e *gateway.InteractionCreateEvent) error {
-	if e.GuildID == 0 {
-		// not in a guild? waa
-		return nil
-	}
-	guild, err := bot.State.Guild(e.GuildID)
-	if err != nil {
-		return nil
-	}
-	if guild.OwnerID != e.Member.User.ID {
-		data := api.InteractionResponse{
-			Type: api.MessageInteractionWithSource,
-			Data: &api.InteractionResponseData{
-				Content: option.NewNullableString("You're not authorised to run that command :c sorry! Ask your server owner."),
-				Flags:   api.EphemeralResponse,
-			},
-		}
-
-		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
-			log.Println("failed to send interaction callback for failed interaction:", err)
-			return err
-		} else {
-			return nil
-		}
-	} else {
-		log.Println("doing the thing")
-
-		data := api.InteractionResponse{
-			Type: api.MessageInteractionWithSource,
-			Data: &api.InteractionResponseData{
-				Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
-				Components: &[]discord.Component{
-					&discord.ActionRowComponent{
-						Components: []discord.Component{
-							&discord.ButtonComponent{
-								CustomID: "verifyme_button",
-								Label:    "Let's get verified!",
-								Emoji: &discord.ButtonEmoji{
-									Name: "🎉",
-								},
-								Style: discord.PrimaryButton,
+	// the event dispatcher has already checked we're in a guild, etc.
+	data := api.InteractionResponse{
+		Type: api.MessageInteractionWithSource,
+		Data: &api.InteractionResponseData{
+			Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
+			Components: &[]discord.Component{
+				&discord.ActionRowComponent{
+					Components: []discord.Component{
+						&discord.ButtonComponent{
+							CustomID: "verifyme_button",
+							Label:    "Let's get verified!",
+							Emoji: &discord.ButtonEmoji{
+								Name: "🎉",
 							},
+							Style: discord.PrimaryButton,
 						},
 					},
 				},
 			},
-		}
+		},
+	}
 
-		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
-			log.Println("failed to send interaction callback:", err)
-			return err
-		} else {
-			return nil
-		}
+	if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+		log.Println("failed to send interaction callback:", err)
+		return err
+	} else {
+		return nil
 	}
 }
 
@@ -123,6 +183,82 @@ func (bot *Bot) OnVerifyMeButton(e *gateway.InteractionCreateEvent) error {
 		} else {
 			return bot.VerifyUser(e.Member.User, e.GuildID)
 		}
+	}
+}
+
+// InteractionToggleUserRole responds to an InteractionCreateEvent from the dispatcher by
+// assigning a user a role, wrapping toggleUserRole.
+func (bot *Bot) InteractionToggleUserRole(e *gateway.InteractionCreateEvent, member *discord.Member, roleName string, guildID discord.GuildID, auditLogReason string) error {
+	assigned, err := bot.toggleUserRole(member, roleName, guildID, auditLogReason)
+	if err != nil {
+		return err
+	}
+
+	var message string
+	if assigned {
+		message = "Now you've got the"
+	} else {
+		message = "No more"
+	}
+
+	data := api.InteractionResponse{
+		Type: api.MessageInteractionWithSource,
+		Data: &api.InteractionResponseData{
+			Content: option.NewNullableString(fmt.Sprintf("Nice job! %s %s role 😊", message, roleName)),
+			Flags:   api.EphemeralResponse,
+		},
+	}
+
+	if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+		log.Println("failed to send interaction callback for assigning user role interaction:", err)
+		return err
+	} else {
+		return nil
+	}
+}
+
+// toggleUserRole internally assigns a user a role, or creates a role
+// and assigns it to the user if it did not already exist. It returns
+// a boolean indicating whether it assigned (true) or removed (false)
+// the role, and an error.
+func (bot *Bot) toggleUserRole(member *discord.Member, roleName string, guildID discord.GuildID, auditLogReason string) (bool, error) {
+	roles, err := bot.State.Roles(guildID)
+	if err != nil {
+		return false, err
+	}
+
+	var roleToUse *discord.Role
+	for _, role := range roles {
+		if strings.EqualFold(role.Name, roleName) {
+			roleToUse = &role
+		}
+	}
+
+	if roleToUse == nil {
+		roleToUse, err = bot.State.CreateRole(guildID, api.CreateRoleData{
+			Name: roleName,
+		})
+		if err != nil {
+			return false, err
+		}
+	}
+
+	hasRole := false
+	for _, roleID := range member.RoleIDs {
+		if roleID == roleToUse.ID {
+			hasRole = true
+			break
+		}
+	}
+
+	if hasRole {
+		err = bot.State.RemoveRole(guildID, member.User.ID, roleToUse.ID, api.AuditLogReason(auditLogReason))
+		return false, err
+	} else {
+		err = bot.State.AddRole(guildID, member.User.ID, roleToUse.ID, api.AddRoleData{
+			AuditLogReason: api.AuditLogReason(auditLogReason),
+		})
+		return true, err
 	}
 }
 
@@ -353,7 +489,7 @@ func getMemberTypeForGuild(guildID discord.GuildID) StudentType {
 	memberType = &CurrentStudent{}
 
 	for configGuildID, guildConfig := range config.Guilds {
-		if uint64(guildID) == configGuildID && guildConfig.AlumniGuild {
+		if guildID == configGuildID && guildConfig.AlumniGuild {
 			memberType = &Alumnus{}
 		}
 	}

@@ -2,8 +2,26 @@ guilds:
   - guildID: AlumniID
     alumniGuild: true
   - guildID: ID
+    colours:
+      - blue
+      - cyan
+      - green
+      - yellow
+      - orange
+      - pink
+      - hot pink
+      - crimson
+      - red
+      - black
+      - white
     channels:
       - channelID: ID
         reapDuration: 30s
       - channelID: ID
         reapDuration: 7d
+pronouns:
+  - he/him
+  - she/her
+  - they/them
+  - any pronouns
+  - please ask for pronouns

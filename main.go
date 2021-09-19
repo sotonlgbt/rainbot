@@ -54,6 +54,8 @@ func main() {
 		log.Fatalln("Failed parsing config file:", err)
 	}
 
+	log.Println(config)
+
 	s, err := state.New("Bot " + token)
 	if err != nil {
 		log.Fatalln("Session failed:", err)
@@ -86,6 +88,14 @@ func main() {
 		{
 			Name:        "verification_button",
 			Description: "Inserts a verification button in the current channel - for server owners only!",
+		},
+		{
+			Name:        "pronoun_picker",
+			Description: "Inserts a pronoun picker in the current channel - for server owners only!",
+		},
+		{
+			Name:        "colour_picker",
+			Description: "Inserts a colour picker in the current channel - for server owners only!",
 		},
 	}
 
