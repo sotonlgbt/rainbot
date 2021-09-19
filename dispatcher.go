@@ -52,6 +52,8 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			err = d.Bot.CreatePronounPicker(e, *guild)
 		case "colour_picker":
 			err = d.Bot.CreateColourPicker(e, *guild)
+		case "role_picker":
+			err = d.Bot.CreateRolePicker(e, *guild)
 		default:
 			return
 		}
@@ -60,6 +62,8 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, colour_button_prefix), e.GuildID, "requested colour role")
 		} else if strings.HasPrefix(e.Data.CustomID, pronoun_button_prefix) {
 			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, pronoun_button_prefix), e.GuildID, "requested pronoun role")
+		} else if strings.HasPrefix(e.Data.CustomID, role_button_prefix) {
+			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, role_button_prefix), e.GuildID, "requested generic role")
 		} else {
 			switch e.Data.CustomID {
 			case "verifyme_button":

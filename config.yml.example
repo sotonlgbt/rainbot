@@ -19,6 +19,8 @@ guilds:
         reapDuration: 30s
       - channelID: ID
         reapDuration: 7d
+    roles:
+      - some_role
 pronouns:
   - he/him
   - she/her

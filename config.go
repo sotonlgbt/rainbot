@@ -17,6 +17,7 @@ type GuildConfig struct {
 	// maps channel IDs to configs
 	Channels map[discord.GuildID]ChannelConfig
 	Colours  []string
+	Roles    []string
 }
 
 type ChannelConfig struct {

@@ -97,6 +97,10 @@ func main() {
 			Name:        "colour_picker",
 			Description: "Inserts a colour picker in the current channel - for server owners only!",
 		},
+		{
+			Name:        "role_picker",
+			Description: "Inserts a general role picker in the current channel - for server owners only!",
+		},
 	}
 
 	for _, command := range newCommands {
