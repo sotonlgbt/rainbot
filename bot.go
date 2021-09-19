@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
@@ -85,9 +86,16 @@ func generateInteractionResponseWithButtons(prefix string, buttons []string, con
 		// j will start at 0, then go up to 4. next time, it starts at 5
 		for j := i * 5; j < (i*5)+limit; j++ {
 			thisButton := buttons[j]
+
+			// Golang has no built-in ability to just capitalise the first letter of a string...
+			// :wut:
+			// So we have to do it manually *sighs*
+			thisButtonRuneArray := []rune(thisButton)
+			thisButtonRuneArray[0] = unicode.ToUpper(thisButtonRuneArray[0])
+
 			actionRowComponents = append(actionRowComponents, &discord.ButtonComponent{
 				CustomID: prefix + thisButton,
-				Label:    strings.Title(thisButton),
+				Label:    string(thisButtonRuneArray),
 				Style:    discord.SecondaryButton,
 			})
 		}
