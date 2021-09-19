@@ -1,28 +1,36 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/diamondburned/arikawa/v3/api"
-	"github.com/diamondburned/arikawa/v3/bot"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/gateway"
+	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v2"
 )
 
-// To run, do `BOT_TOKEN="TOKEN HERE" go run .`
+// config stores the bot configuration.
+var config Config = Config{}
 
-// alumni_server stores the ID of the alumni server.
-var alumni_server string
+// reaperMode is true when the bot is being launched to delete old messages.
+var reaperMode bool
 
 func init() {
+	flag.BoolVar(&reaperMode, "reaperMode", false, "Sets the bot to be in reaper mode.")
+
 	err := godotenv.Load(".env")
 
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+
+	flag.Parse()
 }
 
 func main() {
@@ -36,49 +44,70 @@ func main() {
 		log.Fatalf("Invalid snowflake for $APP_ID: %v", err)
 	}
 
-	content, err := ioutil.ReadFile("alumni_server") // the file is inside the local directory
-	if err == nil {
-		alumni_server = strings.TrimSpace(string(content))
+	configfile, err := ioutil.ReadFile("config.yml") // the file is inside the local directory
+	if err != nil {
+		log.Fatalln("Failed loading config file:", err)
 	}
 
-	commands := &Bot{}
+	err = yaml.Unmarshal(configfile, &config)
+	if err != nil {
+		log.Fatalln("Failed parsing config file:", err)
+	}
 
-	wait, err := bot.Start(token, commands, func(ctx *bot.Context) error {
-		ctx.HasPrefix = bot.NewPrefix("!", "~")
-		ctx.EditableCommands = true
+	s, err := state.New("Bot " + token)
+	if err != nil {
+		log.Fatalln("Session failed:", err)
+	}
 
-		// // Subcommand demo, but this can be in another package.
-		// ctx.MustRegisterSubcommand(&Debug{})
+	if reaperMode {
+		log.Println("Reaper mode active")
 
-		newCommands := []api.CreateCommandData{
-			{
-				Name:        "verification_button",
-				Description: "Inserts a verification button in the current channel - for server owners only!",
-			},
-		}
-
-		for _, command := range newCommands {
-			_, err := ctx.CreateCommand(discord.AppID(appID), command)
-			if err != nil {
-				log.Fatalln("failed to create command:", err)
-				return err
+		for guildID, guildConfig := range config.Guilds {
+			for channelID, channelConfig := range guildConfig.Channels {
+				log.Println("Reaping channel", channelID, "from guild", guildID)
+				err = ReapChannelMessages(discord.ChannelID(channelID), channelConfig.ReapDuration, s)
+				if err != nil {
+					log.Fatalln("Failed reaping channel", channelID, "from guild", guildID, "with error", err)
+				}
 			}
 		}
 
-		return nil
-	})
-
-	if err != nil {
-		log.Fatalln(err)
+		log.Println("Reaping done, ending")
+		os.Exit(0)
 	}
+
+	bot := Bot{State: s}
+	dispatcher := Dispatcher{Bot: bot}
+
+	s.AddHandler(dispatcher.InteractionEventDispatcher)
+	s.AddHandler(dispatcher.NewGuildMemberEventDispatcher)
+
+	newCommands := []api.CreateCommandData{
+		{
+			Name:        "verification_button",
+			Description: "Inserts a verification button in the current channel - for server owners only!",
+		},
+	}
+
+	for _, command := range newCommands {
+		_, err := s.CreateCommand(discord.AppID(appID), command)
+		if err != nil {
+			log.Fatalln("failed to create command:", err)
+		}
+	}
+
+	s.AddIntents(gateway.IntentGuildMessages)
+	s.AddIntents(gateway.IntentGuildMembers)
+	s.AddIntents(gateway.IntentGuildInvites)
+	s.AddIntents(gateway.IntentDirectMessages)
+
+	if err := s.Open(context.Background()); err != nil {
+		log.Fatalln("Failed to connect:", err)
+	}
+	defer s.Close()
 
 	log.Println("Bot started")
 
-	// As of this commit, wait() will block until SIGINT or fatal. The past
-	// versions close on call, but this one will block.
-	// If for some reason you want the Cancel() function, manually make a new
-	// context.
-	if err := wait(); err != nil {
-		log.Fatalln("Gateway fatal error:", err)
-	}
+	// Block forever.
+	select {}
 }

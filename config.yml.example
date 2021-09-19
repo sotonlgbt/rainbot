@@ -1,0 +1,9 @@
+guilds:
+  - guildID: AlumniID
+    alumniGuild: true
+  - guildID: ID
+    channels:
+      - channelID: ID
+        reapDuration: 30s
+      - channelID: ID
+        reapDuration: 7d

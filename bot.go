@@ -1,171 +1,139 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/diamondburned/arikawa/v3/api"
-	"github.com/diamondburned/arikawa/v3/bot"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
+	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/json/option"
 )
 
 var verifiedRoles map[discord.GuildID]*discord.Role = map[discord.GuildID]*discord.Role{}
 
 type Bot struct {
-	// Context must not be embedded.
-	Ctx *bot.Context
+	State *state.State
 }
 
-func (bot *Bot) Setup(sub *bot.Subcommand) {
-	// Only allow people in guilds to run guildInfo.
-	// sub.AddMiddleware("GuildInfo", middlewares.GuildOnly(bot.Ctx))
-}
-
-// // Help prints the default help message.
-// func (bot *Bot) Help(*gateway.MessageCreateEvent) (string, error) {
-// 	return bot.Ctx.Help(), nil
-// }
-
-// // Add demonstrates the usage of typed arguments. Run it with "~add 1 2".
-// func (bot *Bot) Add(_ *gateway.MessageCreateEvent, a, b int) (string, error) {
-// 	return fmt.Sprintf("%d + %d = %d", a, b, a+b), nil
-// }
-
-// Ping is a simple ping example, perhaps the most simple you could make it.
-func (bot *Bot) Ping(*gateway.MessageCreateEvent) (string, error) {
-	log.Println("Ponging")
-	return "Pong!", nil
-}
-
-// // Say demonstrates how arguments.Flag could be used without the flag library.
-// func (bot *Bot) Say(_ *gateway.MessageCreateEvent, f bot.RawArguments) (string, error) {
-// 	if f != "" {
-// 		return string(f), nil
-// 	}
-// 	return "", errors.New("missing content")
-// }
-
-func (bot *Bot) NewGuildMemberEventProcessor(newMemberEvent *gateway.GuildMemberAddEvent) error {
-	return bot.verifyUser(newMemberEvent.User, newMemberEvent.GuildID)
-}
-
-func (bot *Bot) InteractionCreateEventProcessor(e *gateway.InteractionCreateEvent) error {
-	if e.Type == gateway.CommandInteraction && e.Data.Name == "verification_button" {
-		if e.GuildID == 0 {
-			// not in a guild? waa
-			return nil
+// CreateVerificationButton is run by the interaction event dispatcher when the command
+// to create a verification button in the current channel is activated.
+func (bot *Bot) CreateVerificationButton(e *gateway.InteractionCreateEvent) error {
+	if e.GuildID == 0 {
+		// not in a guild? waa
+		return nil
+	}
+	guild, err := bot.State.Guild(e.GuildID)
+	if err != nil {
+		return nil
+	}
+	if guild.OwnerID != e.Member.User.ID {
+		data := api.InteractionResponse{
+			Type: api.MessageInteractionWithSource,
+			Data: &api.InteractionResponseData{
+				Content: option.NewNullableString("You're not authorised to run that command :c sorry! Ask your server owner."),
+				Flags:   api.EphemeralResponse,
+			},
 		}
-		guild, err := bot.Ctx.Guild(e.GuildID)
-		if err != nil {
-			return nil
-		}
-		if guild.OwnerID != e.Member.User.ID {
-			data := api.InteractionResponse{
-				Type: api.MessageInteractionWithSource,
-				Data: &api.InteractionResponseData{
-					Content: option.NewNullableString("You're not authorised to run that command :c sorry! Ask your server owner."),
-					Flags:   api.EphemeralResponse,
-				},
-			}
 
-			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
-				log.Println("failed to send interaction callback for failed interaction:", err)
-				return err
-			} else {
-				return nil
-			}
+		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+			log.Println("failed to send interaction callback for failed interaction:", err)
+			return err
 		} else {
-			log.Println("doing the thing")
+			return nil
+		}
+	} else {
+		log.Println("doing the thing")
 
-			data := api.InteractionResponse{
-				Type: api.MessageInteractionWithSource,
-				Data: &api.InteractionResponseData{
-					Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
-					Components: &[]discord.Component{
-						&discord.ActionRowComponent{
-							Components: []discord.Component{
-								&discord.ButtonComponent{
-									CustomID: "verifyme_button",
-									Label:    "Let's get verified!",
-									Emoji: &discord.ButtonEmoji{
-										Name: "🎉",
-									},
-									Style: discord.PrimaryButton,
+		data := api.InteractionResponse{
+			Type: api.MessageInteractionWithSource,
+			Data: &api.InteractionResponseData{
+				Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
+				Components: &[]discord.Component{
+					&discord.ActionRowComponent{
+						Components: []discord.Component{
+							&discord.ButtonComponent{
+								CustomID: "verifyme_button",
+								Label:    "Let's get verified!",
+								Emoji: &discord.ButtonEmoji{
+									Name: "🎉",
 								},
+								Style: discord.PrimaryButton,
 							},
 						},
 					},
 				},
-			}
-
-			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
-				log.Println("failed to send interaction callback:", err)
-				return err
-			} else {
-				return nil
-			}
+			},
 		}
-	} else if e.Type == gateway.ButtonInteraction && e.Data.CustomID == "verifyme_button" {
-		verifiedRole, err := bot.getVerifiedRole(e.GuildID)
-		if err != nil {
+
+		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+			log.Println("failed to send interaction callback:", err)
 			return err
-		}
-
-		authenticated, memberType := isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID))
-		if authenticated {
-			// Optionally add the role if they aren't already owning it - so ignore errors here!
-			bot.Ctx.AddRole(e.GuildID, e.Member.User.ID, *verifiedRole, api.AddRoleData{
-				AuditLogReason: api.AuditLogReason(fmt.Sprintf("Pre-registered, button verified with the bot as %s", memberType)),
-			})
-
-			data := api.InteractionResponse{
-				Type: api.MessageInteractionWithSource,
-				Data: &api.InteractionResponseData{
-					Content: option.NewNullableString("You're already registered, so all's good! Enjoy your day 😊"),
-					Flags:   api.EphemeralResponse,
-				},
-			}
-
-			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
-				log.Println("failed to send interaction callback for already-registered interaction:", err)
-				return err
-			} else {
-				return nil
-			}
 		} else {
-			bot.Ctx.RemoveRole(e.GuildID, e.Member.User.ID, *verifiedRole, "Pressed the button to verify themselves, not entitled to verification yet")
-			data := api.InteractionResponse{
-				Type: api.MessageInteractionWithSource,
-				Data: &api.InteractionResponseData{
-					Content: option.NewNullableString("Check your DMs to complete verification!"),
-					Flags:   api.EphemeralResponse,
-				},
-			}
-
-			if err := bot.Ctx.RespondInteraction(e.ID, e.Token, data); err != nil {
-				log.Println("failed to send interaction callback for failed interaction:", err)
-				return err
-			} else {
-				return bot.verifyUser(e.Member.User, e.GuildID)
-			}
+			return nil
 		}
-	} else {
-		return nil
 	}
 }
 
-func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
-	memberChannel, err := bot.Ctx.CreatePrivateChannel(user.ID)
+// OnVerifyMeButton is run by the interaction event dispatcher when the "Verify me"
+// button is pressed.
+func (bot *Bot) OnVerifyMeButton(e *gateway.InteractionCreateEvent) error {
+	verifiedRole, err := bot.getVerifiedRole(e.GuildID)
 	if err != nil {
 		return err
 	}
 
-	bot.Ctx.SendMessageComplex(memberChannel.ID, api.SendMessageData{
+	authenticated, memberType := isDiscordAuthenticated(e.Member.User, getMemberTypeForGuild(e.GuildID))
+	if authenticated {
+		// Optionally add the role if they aren't already owning it - so ignore errors here!
+		bot.State.AddRole(e.GuildID, e.Member.User.ID, *verifiedRole, api.AddRoleData{
+			AuditLogReason: api.AuditLogReason(fmt.Sprintf("Pre-registered, button verified with the bot as %s", memberType)),
+		})
+
+		data := api.InteractionResponse{
+			Type: api.MessageInteractionWithSource,
+			Data: &api.InteractionResponseData{
+				Content: option.NewNullableString("You're already registered, so all's good! Enjoy your day 😊"),
+				Flags:   api.EphemeralResponse,
+			},
+		}
+
+		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+			log.Println("failed to send interaction callback for already-registered interaction:", err)
+			return err
+		} else {
+			return nil
+		}
+	} else {
+		bot.State.RemoveRole(e.GuildID, e.Member.User.ID, *verifiedRole, "Pressed the button to verify themselves, not entitled to verification yet")
+		data := api.InteractionResponse{
+			Type: api.MessageInteractionWithSource,
+			Data: &api.InteractionResponseData{
+				Content: option.NewNullableString("Check your DMs to complete verification!"),
+				Flags:   api.EphemeralResponse,
+			},
+		}
+
+		if err := bot.State.RespondInteraction(e.ID, e.Token, data); err != nil {
+			log.Println("failed to send interaction callback for failed interaction:", err)
+			return err
+		} else {
+			return bot.VerifyUser(e.Member.User, e.GuildID)
+		}
+	}
+}
+
+// VerifyUser starts the verification process with a user, and manages it through to the end.
+func (bot *Bot) VerifyUser(user discord.User, guildID discord.GuildID) error {
+	memberChannel, err := bot.State.CreatePrivateChannel(user.ID)
+	if err != nil {
+		return err
+	}
+
+	bot.State.SendMessageComplex(memberChannel.ID, api.SendMessageData{
 		Content: "Hi, welcome to the LGBTQ+ Society server! To verify that you're a student, please click here, and sign in within the next 10 minutes 😃",
 		Components: []discord.Component{
 			&discord.ActionRowComponent{
@@ -183,7 +151,7 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 		},
 	})
 
-	bot.Ctx.SendMessageComplex(memberChannel.ID, api.SendMessageData{
+	bot.State.SendMessageComplex(memberChannel.ID, api.SendMessageData{
 		Content: "Once you've verified, please click here!",
 		Components: []discord.Component{
 			&discord.ActionRowComponent{
@@ -203,7 +171,7 @@ func (bot *Bot) verifyUser(user discord.User, guildID discord.GuildID) error {
 
 	var interactionToRespondTo *gateway.InteractionCreateEvent
 
-	hasValidatedEventChannel, cancelEventChannel := bot.Ctx.ChanFor(func(v interface{}) bool {
+	hasValidatedEventChannel, cancelEventChannel := bot.State.ChanFor(func(v interface{}) bool {
 		// Incoming event is a component interaction:
 		ci, ok := v.(*gateway.InteractionCreateEvent)
 		if ok {
@@ -241,7 +209,7 @@ repeatSelect:
 					break repeatSelect
 				} else {
 					halfElapsed = true
-					bot.Ctx.SendMessage(memberChannel.ID, "You've got five minutes left to verify - if you're not verified by then, you'll need to rejoin the server 😢 Having trouble? Message a committee member or email lgbt@soton.ac.uk.")
+					bot.State.SendMessage(memberChannel.ID, "You've got five minutes left to verify - if you're not verified by then, you'll need to rejoin the server 😢 Having trouble? Message a committee member or email lgbt@soton.ac.uk.")
 				}
 			}
 		}
@@ -256,7 +224,7 @@ repeatSelect:
 
 	isAuthenticated, memberCode := isDiscordAuthenticated(user, getMemberTypeForGuild(guildID))
 	if isAuthenticated {
-		err = bot.Ctx.AddRole(guildID, user.ID, *verifiedRole, api.AddRoleData{
+		err = bot.State.AddRole(guildID, user.ID, *verifiedRole, api.AddRoleData{
 			AuditLogReason: api.AuditLogReason(fmt.Sprintf("Verified successfully with the bot as %s", memberCode)),
 		})
 		if err != nil {
@@ -274,14 +242,14 @@ repeatSelect:
 				},
 			}
 
-			if err := bot.Ctx.RespondInteraction(interactionToRespondTo.ID, interactionToRespondTo.Token, data); err != nil {
+			if err := bot.State.RespondInteraction(interactionToRespondTo.ID, interactionToRespondTo.Token, data); err != nil {
 				log.Println("failed to send interaction callback:", err)
 			}
 		} else {
-			bot.Ctx.SendMessage(memberChannel.ID, message)
+			bot.State.SendMessage(memberChannel.ID, message)
 		}
 	} else {
-		guildChannels, err := bot.Ctx.Channels(guildID)
+		guildChannels, err := bot.State.Channels(guildID)
 		if err != nil {
 			return err
 		}
@@ -296,7 +264,7 @@ repeatSelect:
 			}
 		}
 
-		invite, err := bot.Ctx.CreateInvite(inviteChannel.ID, api.CreateInviteData{
+		invite, err := bot.State.CreateInvite(inviteChannel.ID, api.CreateInviteData{
 			MaxUses:        1,
 			Unique:         true,
 			AuditLogReason: api.AuditLogReason(fmt.Sprintf("%s failed authentication, so creating them an easy re-invite link", user.Username)),
@@ -323,7 +291,7 @@ repeatSelect:
 		}
 
 		if timedOut {
-			member, err := bot.Ctx.Member(guildID, user.ID)
+			member, err := bot.State.Member(guildID, user.ID)
 			if err != nil {
 				return err
 			}
@@ -331,26 +299,26 @@ repeatSelect:
 			for _, roleID := range member.RoleIDs {
 				if roleID == *verifiedRole {
 					// the member was verified manually - ignore them
-					bot.Ctx.SendMessage(memberChannel.ID, "Looks like you were verified manually! Clipping through the map 😉 see ya!")
+					bot.State.SendMessage(memberChannel.ID, "Looks like you were verified manually! Clipping through the map 😉 see ya!")
 					return nil
 				}
 			}
 
 			// the member doesn't have the verified role - kick them.
 			reinviteMessageData.Content = "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again."
-			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
-			bot.Ctx.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
-			return errors.New("timed out waiting for response, kicked " + user.Username)
+			bot.State.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			bot.State.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
+			return nil
 		} else {
 			if memberCode == "" {
 				reinviteMessageData.Content = "Sorry, that doesn't look like you authenticated successfully. Please try joining the server again."
-				bot.Ctx.Kick(guildID, user.ID, "Claimed to be authenticated but was not in fact registered")
+				bot.State.Kick(guildID, user.ID, "Claimed to be authenticated but was not in fact registered")
 			} else {
 				reinviteMessageData.Content = "Hmm - that doesn't look like you have the right type of University account for this server. If you've recently graduated, you may need to get a committee member to manually verify you (lgbt@soton.ac.uk), or contact iSolutions to get them to correct your account. Otherwise, please try joining the server again."
-				bot.Ctx.Kick(guildID, user.ID, api.AuditLogReason(fmt.Sprintf("Was not authenticated successfully - authenticated as %s which is invalid for this guild", memberCode)))
+				bot.State.Kick(guildID, user.ID, api.AuditLogReason(fmt.Sprintf("Was not authenticated successfully - authenticated as %s which is invalid for this guild", memberCode)))
 			}
-			bot.Ctx.SendMessageComplex(memberChannel.ID, reinviteMessageData)
-			return errors.New("invalid claim of authentication, kicked " + user.Username)
+			bot.State.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			return nil
 		}
 	}
 
@@ -363,7 +331,7 @@ func (bot *Bot) getVerifiedRole(guildID discord.GuildID) (*discord.RoleID, error
 		return &verifiedRoles[guildID].ID, nil
 	}
 
-	roles, err := bot.Ctx.Roles(guildID)
+	roles, err := bot.State.Roles(guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -382,107 +350,13 @@ func (bot *Bot) getVerifiedRole(guildID discord.GuildID) (*discord.RoleID, error
 // student meant to be on that guild.
 func getMemberTypeForGuild(guildID discord.GuildID) StudentType {
 	var memberType StudentType
-	if guildID.String() == alumni_server {
-		memberType = &Alumnus{}
-	} else {
-		memberType = &CurrentStudent{}
+	memberType = &CurrentStudent{}
+
+	for configGuildID, guildConfig := range config.Guilds {
+		if uint64(guildID) == configGuildID && guildConfig.AlumniGuild {
+			memberType = &Alumnus{}
+		}
 	}
+
 	return memberType
 }
-
-// // GuildInfo demonstrates the GuildOnly middleware done in (*Bot).Setup().
-// func (bot *Bot) GuildInfo(m *gateway.MessageCreateEvent) (string, error) {
-// 	g, err := bot.Ctx.GuildWithCount(m.GuildID)
-// 	if err != nil {
-// 		return "", fmt.Errorf("failed to get guild: %v", err)
-// 	}
-
-// 	return fmt.Sprintf(
-// 		"Your guild is %s, and its maximum members is %d",
-// 		g.Name, g.ApproximateMembers,
-// 	), nil
-// }
-
-// // Repeat tells the bot to wait for the user's response, then repeat what they
-// // said.
-// func (bot *Bot) Repeat(m *gateway.MessageCreateEvent) (string, error) {
-// 	_, err := bot.Ctx.SendMessage(m.ChannelID, "What do you want me to say?", nil)
-// 	if err != nil {
-// 		return "", err
-// 	}
-
-// 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-// 	defer cancel()
-
-// 	// This might miss events that are sent immediately after. To make sure all
-// 	// events are caught, ChanFor should be used.
-// 	v := bot.Ctx.WaitFor(ctx, func(v interface{}) bool {
-// 		// Incoming event is a message create event:
-// 		mg, ok := v.(*gateway.MessageCreateEvent)
-// 		if !ok {
-// 			return false
-// 		}
-
-// 		// Message is from the same author:
-// 		return mg.Author.ID == m.Author.ID
-// 	})
-
-// 	if v == nil {
-// 		return "", errors.New("timed out waiting for response")
-// 	}
-
-// 	ev := v.(*gateway.MessageCreateEvent)
-// 	return ev.Content, nil
-// }
-
-// // Embed is a simple embed creator. Its purpose is to demonstrate the usage of
-// // the ParseContent interface, as well as using the stdlib flag package.
-// func (bot *Bot) Embed(_ *gateway.MessageCreateEvent, f arguments.Flag) (*discord.Embed, error) {
-// 	fs := arguments.NewFlagSet()
-
-// 	var (
-// 		title  = fs.String("title", "", "Title")
-// 		author = fs.String("author", "", "Author")
-// 		footer = fs.String("footer", "", "Footer")
-// 		color  = fs.String("color", "#FFFFFF", "Color in hex format #hhhhhh")
-// 	)
-
-// 	if err := f.With(fs.FlagSet); err != nil {
-// 		return nil, err
-// 	}
-
-// 	if len(fs.Args()) < 1 {
-// 		return nil, fmt.Errorf("usage: embed [flags] content...\n" + fs.Usage())
-// 	}
-
-// 	// Check if the color string is valid.
-// 	if !strings.HasPrefix(*color, "#") || len(*color) != 7 {
-// 		return nil, errors.New("invalid color, format must be #hhhhhh")
-// 	}
-
-// 	// Parse the color into decimal numbers.
-// 	colorHex, err := strconv.ParseInt((*color)[1:], 16, 64)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Make a new embed
-// 	embed := discord.Embed{
-// 		Title:       *title,
-// 		Description: strings.Join(fs.Args(), " "),
-// 		Color:       discord.Color(colorHex),
-// 	}
-
-// 	if *author != "" {
-// 		embed.Author = &discord.EmbedAuthor{
-// 			Name: *author,
-// 		}
-// 	}
-// 	if *footer != "" {
-// 		embed.Footer = &discord.EmbedFooter{
-// 			Text: *footer,
-// 		}
-// 	}
-
-// 	return &embed, err
-// }
