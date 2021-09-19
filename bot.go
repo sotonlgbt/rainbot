@@ -231,6 +231,8 @@ func (bot *Bot) toggleUserRole(member *discord.Member, roleName string, guildID 
 	for _, role := range roles {
 		if strings.EqualFold(role.Name, roleName) {
 			roleToUse = &role
+			// Failing to break early from the loop here creates an issue where the pointer moves to the end of the list.
+			break
 		}
 	}
 
