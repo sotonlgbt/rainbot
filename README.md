@@ -9,9 +9,15 @@ The LGBTQ+soc bot for Discord.
 
 ## Structure
 **main.go** contains the application entry point, and sets up the handlers for the dispatcher system.
+
 **dispatcher.go** handles events coming from Discord, and dispatches them to the other relevant parts of the code - usually the bot.
+
 **bot.go** contains the core bot code - actually interacts with the user.
+
 **member_api.go** handles verification of membership in conjunction with the LGBTQ+ Society authentication system.
+
 **roles.go** contains the structures for the current student and alumni roles.
+
 **config.go** contains the structures for the bot's configuration files.
+
 **reaper.go** contains the code for the periodic message deletion system.
