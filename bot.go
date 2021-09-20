@@ -293,6 +293,14 @@ func (bot *Bot) VerifyUser(user discord.User, guildID discord.GuildID) error {
 						Style: discord.LinkButton,
 						URL:   getDiscordAuthLink(user),
 					},
+					&discord.ButtonComponent{
+						Label: "Read our Member Data Policy",
+						Emoji: &discord.ButtonEmoji{
+							Name: "🔒",
+						},
+						Style: discord.LinkButton,
+						URL:   "https://www.sotonlgbt.org.uk/privacy",
+					},
 				},
 			},
 		},
