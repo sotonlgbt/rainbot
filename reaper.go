@@ -9,6 +9,9 @@ import (
 	"github.com/diamondburned/arikawa/v3/state"
 )
 
+// ReapChannelMessages takes a Discord channel ID, the amount of time to reap messages from, and the
+// Discord API state. It then deletes messages older than the given duration in the given channel,
+// excluding only messages that are pinned.
 func ReapChannelMessages(channel discord.ChannelID, reapDuration time.Duration, s *state.State) error {
 	limit := time.Now().UTC().Add(-reapDuration)
 

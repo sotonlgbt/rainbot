@@ -17,10 +17,16 @@ import (
 
 var verifiedRoles map[discord.GuildID]*discord.Role = map[discord.GuildID]*discord.Role{}
 
+// colour_button_prefix defines a prefix for the IDs on the buttons that set a person's colour roles.
 const colour_button_prefix = "colour_button_"
+
+// pronoun_button_prefix defines a prefix for the IDs on the buttons that set a person's pronoun roles.
 const pronoun_button_prefix = "pronoun_button_"
+
+// role_button_prefix defines a prefix for the IDs on the buttons that set a person's generic roles.
 const role_button_prefix = "role_button_"
 
+// Bot holds the current Discord state, and allows access to all of the bot's methods.
 type Bot struct {
 	State *state.State
 }

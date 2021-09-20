@@ -10,6 +10,7 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/json/option"
 )
 
+// Dispatcher takes events in on its methods, and sends them to the Bot.
 type Dispatcher struct {
 	Bot Bot
 }
