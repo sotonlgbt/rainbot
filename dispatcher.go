@@ -72,7 +72,7 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			if err != nil {
 				log.Fatalln("Invalid guild ID found for button with text", e.Data.CustomID)
 			}
-			err = d.Bot.VerifyUser(e.Member.User, discord.GuildID(guildSnowflake))
+			err = d.Bot.VerifyUser(*e.User, discord.GuildID(guildSnowflake))
 		case e.Data.CustomID == "verifyme_button":
 			err = d.Bot.OnVerifyMeButton(e)
 		default:
