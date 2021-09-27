@@ -29,6 +29,7 @@ var warnInvalidDeadline string
 // purgeInvalidMode is true when the bot is being launched to remove unsuitably-verified users.
 var purgeInvalidMode bool
 
+// init sets up our command line flags, loads our env file, and loads our config file.
 func init() {
 	flag.BoolVar(&reaperMode, "reaperMode", false, "Sets the bot to be in reaper mode.")
 	flag.BoolVar(&warnInvalidMode, "warnInvalid", false, "Sets the bot to be in 'invalid user' warning mode.")
