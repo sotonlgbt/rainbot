@@ -59,19 +59,24 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			return
 		}
 	} else if e.Type == gateway.ButtonInteraction {
-		if strings.HasPrefix(e.Data.CustomID, colour_button_prefix) {
+		switch {
+		case strings.HasPrefix(e.Data.CustomID, colour_button_prefix):
 			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, colour_button_prefix), e.GuildID, "requested colour role")
-		} else if strings.HasPrefix(e.Data.CustomID, pronoun_button_prefix) {
+		case strings.HasPrefix(e.Data.CustomID, pronoun_button_prefix):
 			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, pronoun_button_prefix), e.GuildID, "requested pronoun role")
-		} else if strings.HasPrefix(e.Data.CustomID, role_button_prefix) {
+		case strings.HasPrefix(e.Data.CustomID, role_button_prefix):
 			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, role_button_prefix), e.GuildID, "requested generic role")
-		} else {
-			switch e.Data.CustomID {
-			case "verifyme_button":
-				err = d.Bot.OnVerifyMeButton(e)
-			default:
-				return
+		case strings.HasPrefix(e.Data.CustomID, verify_button_guild_prefix):
+			var guildSnowflake discord.Snowflake
+			guildSnowflake, err = discord.ParseSnowflake(strings.TrimPrefix(e.Data.CustomID, verify_button_guild_prefix))
+			if err != nil {
+				log.Fatalln("Invalid guild ID found for button with text", e.Data.CustomID)
 			}
+			err = d.Bot.VerifyUser(e.Member.User, discord.GuildID(guildSnowflake))
+		case e.Data.CustomID == "verifyme_button":
+			err = d.Bot.OnVerifyMeButton(e)
+		default:
+			return
 		}
 	} else {
 		return

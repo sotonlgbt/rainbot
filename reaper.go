@@ -6,16 +6,15 @@ import (
 
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/diamondburned/arikawa/v3/state"
 )
 
 // ReapChannelMessages takes a Discord channel ID, the amount of time to reap messages from, and the
 // Discord API state. It then deletes messages older than the given duration in the given channel,
 // excluding only messages that are pinned.
-func ReapChannelMessages(channel discord.ChannelID, reapDuration time.Duration, s *state.State) error {
+func (b *Bot) ReapChannelMessages(channel discord.ChannelID, reapDuration time.Duration) error {
 	limit := time.Now().UTC().Add(-reapDuration)
 
-	channelMessages, err := s.Messages(channel, 0)
+	channelMessages, err := b.State.Messages(channel, 0)
 	if err != nil {
 		return err
 	}
@@ -34,7 +33,7 @@ func ReapChannelMessages(channel discord.ChannelID, reapDuration time.Duration, 
 					batchDeletionQueue = append(batchDeletionQueue, channelMessages[i].ID)
 				} else {
 					// more than 13 days? delete the message one by one... :c
-					err = s.DeleteMessage(channel, channelMessages[i].ID, reason)
+					err = b.State.DeleteMessage(channel, channelMessages[i].ID, reason)
 					if err != nil {
 						return err
 					}
@@ -48,6 +47,6 @@ func ReapChannelMessages(channel discord.ChannelID, reapDuration time.Duration, 
 	}
 
 	// these messages we can batch request - the 100 per request is handled by Arikawa
-	err = s.DeleteMessages(channel, batchDeletionQueue, reason)
+	err = b.State.DeleteMessages(channel, batchDeletionQueue, reason)
 	return err
 }

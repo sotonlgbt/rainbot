@@ -21,8 +21,24 @@ var config Config = Config{}
 // reaperMode is true when the bot is being launched to delete old messages.
 var reaperMode bool
 
+// warnInvalidMode is true when the bot is being launched to warn users who are invalid of their pending removal.
+var warnInvalidMode bool
+
+// warnInvalidDryRunMode is true when the bot is in warnInvalid mode, but should not send any messages - just print the usernames to the console.
+var warnInvalidDryRunMode bool
+
+// warnInvalidDeadline sets a time when members should expect to be removed in an invalid member warning.
+var warnInvalidDeadline string
+
+// purgeInvalidMode is true when the bot is being launched to remove unsuitably-verified users.
+var purgeInvalidMode bool
+
 func init() {
 	flag.BoolVar(&reaperMode, "reaperMode", false, "Sets the bot to be in reaper mode.")
+	flag.BoolVar(&warnInvalidMode, "warnInvalid", false, "Sets the bot to be in 'invalid user' warning mode.")
+	flag.BoolVar(&warnInvalidDryRunMode, "warnInvalidDryRun", false, "Sets the bot to not message invalid users, but just print names to the console.")
+	flag.StringVar(&warnInvalidDeadline, "warnInvalidDeadline", "a few days", "Sets a string to use as a timeframe for members to expect to be removed.")
+	flag.BoolVar(&purgeInvalidMode, "purgeInvalid", false, "Sets the bot to be in 'invalid user' purging mode.")
 
 	err := godotenv.Load(".env")
 
@@ -61,13 +77,16 @@ func main() {
 		log.Fatalln("Session failed:", err)
 	}
 
-	if reaperMode {
+	bot := Bot{State: s}
+
+	switch {
+	case reaperMode:
 		log.Println("Reaper mode active")
 
 		for guildID, guildConfig := range config.Guilds {
 			for channelID, channelConfig := range guildConfig.Channels {
 				log.Println("Reaping channel", channelID, "from guild", guildID)
-				err = ReapChannelMessages(discord.ChannelID(channelID), channelConfig.ReapDuration, s)
+				err = bot.ReapChannelMessages(discord.ChannelID(channelID), channelConfig.ReapDuration)
 				if err != nil {
 					log.Fatalln("Failed reaping channel", channelID, "from guild", guildID, "with error", err)
 				}
@@ -75,53 +94,77 @@ func main() {
 		}
 
 		log.Println("Reaping done, ending")
-		os.Exit(0)
-	}
+	case warnInvalidMode:
+		log.Println("Invalid user warning mode active")
 
-	bot := Bot{State: s}
-	dispatcher := Dispatcher{Bot: bot}
+		for guildID, guildConfig := range config.Guilds {
+			// For now, we ignore alumni guilds in here
+			if guildConfig.AlumniGuild {
+				continue
+			}
 
-	s.AddHandler(dispatcher.InteractionEventDispatcher)
-	s.AddHandler(dispatcher.NewGuildMemberEventDispatcher)
-
-	newCommands := []api.CreateCommandData{
-		{
-			Name:        "verification_button",
-			Description: "Inserts a verification button in the current channel - for server owners only!",
-		},
-		{
-			Name:        "pronoun_picker",
-			Description: "Inserts a pronoun picker in the current channel - for server owners only!",
-		},
-		{
-			Name:        "colour_picker",
-			Description: "Inserts a colour picker in the current channel - for server owners only!",
-		},
-		{
-			Name:        "role_picker",
-			Description: "Inserts a general role picker in the current channel - for server owners only!",
-		},
-	}
-
-	for _, command := range newCommands {
-		_, err := s.CreateCommand(discord.AppID(appID), command)
-		if err != nil {
-			log.Fatalln("failed to create command:", err)
+			bot.warnInvalidUsers(guildID)
 		}
+
+		log.Println("Invalid user warning done, ending")
+	case purgeInvalidMode:
+		log.Println("Invalid user purging mode active")
+
+		for guildID, guildConfig := range config.Guilds {
+			// For now, we ignore alumni guilds in here
+			if guildConfig.AlumniGuild {
+				continue
+			}
+
+			bot.PurgeInvalidUsers(guildID)
+		}
+
+		log.Println("Invalid user purging done, ending")
+	default:
+		dispatcher := Dispatcher{Bot: bot}
+
+		s.AddHandler(dispatcher.InteractionEventDispatcher)
+		s.AddHandler(dispatcher.NewGuildMemberEventDispatcher)
+
+		newCommands := []api.CreateCommandData{
+			{
+				Name:        "verification_button",
+				Description: "Inserts a verification button in the current channel - for server owners only!",
+			},
+			{
+				Name:        "pronoun_picker",
+				Description: "Inserts a pronoun picker in the current channel - for server owners only!",
+			},
+			{
+				Name:        "colour_picker",
+				Description: "Inserts a colour picker in the current channel - for server owners only!",
+			},
+			{
+				Name:        "role_picker",
+				Description: "Inserts a general role picker in the current channel - for server owners only!",
+			},
+		}
+
+		for _, command := range newCommands {
+			_, err := s.CreateCommand(discord.AppID(appID), command)
+			if err != nil {
+				log.Fatalln("failed to create command:", err)
+			}
+		}
+
+		s.AddIntents(gateway.IntentGuildMessages)
+		s.AddIntents(gateway.IntentGuildMembers)
+		s.AddIntents(gateway.IntentGuildInvites)
+		s.AddIntents(gateway.IntentDirectMessages)
+
+		if err := s.Open(context.Background()); err != nil {
+			log.Fatalln("Failed to connect:", err)
+		}
+		defer s.Close()
+
+		log.Println("Bot started")
+
+		// Block forever.
+		select {}
 	}
-
-	s.AddIntents(gateway.IntentGuildMessages)
-	s.AddIntents(gateway.IntentGuildMembers)
-	s.AddIntents(gateway.IntentGuildInvites)
-	s.AddIntents(gateway.IntentDirectMessages)
-
-	if err := s.Open(context.Background()); err != nil {
-		log.Fatalln("Failed to connect:", err)
-	}
-	defer s.Close()
-
-	log.Println("Bot started")
-
-	// Block forever.
-	select {}
 }

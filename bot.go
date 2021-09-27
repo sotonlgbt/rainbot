@@ -26,6 +26,9 @@ const pronoun_button_prefix = "pronoun_button_"
 // role_button_prefix defines a prefix for the IDs on the buttons that set a person's generic roles.
 const role_button_prefix = "role_button_"
 
+// verify_button_guild_prefix defines a prefix for the IDs on buttons that allow someone to verify in a specified guild - used for DMs.
+const verify_button_guild_prefix = "verifyme_button_guild_"
+
 // Bot holds the current Discord state, and allows access to all of the bot's methods.
 type Bot struct {
 	State *state.State
@@ -410,45 +413,9 @@ repeatSelect:
 			bot.State.SendMessage(memberChannel.ID, message)
 		}
 	} else {
-		guildChannels, err := bot.State.Channels(guildID)
+		reinviteMessageData, err := bot.createReinviteMessage(guildID, user)
 		if err != nil {
 			return err
-		}
-
-		var inviteChannel discord.Channel
-		// start off with a ridiculous position - our first channel must be below this.
-		var lowestChannelPosition int = 10000
-		for _, channel := range guildChannels {
-			if channel.Type == discord.GuildText && lowestChannelPosition > channel.Position {
-				inviteChannel = channel
-				lowestChannelPosition = channel.Position
-			}
-		}
-
-		invite, err := bot.State.CreateInvite(inviteChannel.ID, api.CreateInviteData{
-			MaxUses:        1,
-			Unique:         true,
-			AuditLogReason: api.AuditLogReason(fmt.Sprintf("%s failed authentication, so creating them an easy re-invite link", user.Username)),
-		})
-		if err != nil {
-			return err
-		}
-
-		reinviteMessageData := api.SendMessageData{
-			Components: []discord.Component{
-				&discord.ActionRowComponent{
-					Components: []discord.Component{
-						&discord.ButtonComponent{
-							Label: "Let's try again",
-							Emoji: &discord.ButtonEmoji{
-								Name: "😢",
-							},
-							Style: discord.LinkButton,
-							URL:   fmt.Sprintf("https://discord.gg/%s", invite.Code),
-						},
-					},
-				},
-			},
 		}
 
 		if timedOut {
@@ -467,7 +434,7 @@ repeatSelect:
 
 			// the member doesn't have the verified role - kick them.
 			reinviteMessageData.Content = "Whoops - time's up, and it doesn't look like you've verified. Please try joining the server again."
-			bot.State.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			bot.State.SendMessageComplex(memberChannel.ID, *reinviteMessageData)
 			bot.State.Kick(guildID, user.ID, "Timed out without verification, took too long to verify")
 			return nil
 		} else {
@@ -478,12 +445,57 @@ repeatSelect:
 				reinviteMessageData.Content = "Hmm - that doesn't look like you have the right type of University account for this server. If you've recently graduated, you may need to get a committee member to manually verify you (lgbt@soton.ac.uk), or contact iSolutions to get them to correct your account. Otherwise, please try joining the server again."
 				bot.State.Kick(guildID, user.ID, api.AuditLogReason(fmt.Sprintf("Was not authenticated successfully - authenticated as %s which is invalid for this guild", memberCode)))
 			}
-			bot.State.SendMessageComplex(memberChannel.ID, reinviteMessageData)
+			bot.State.SendMessageComplex(memberChannel.ID, *reinviteMessageData)
 			return nil
 		}
 	}
 
 	return nil
+}
+
+func (bot *Bot) createReinviteMessage(guildID discord.GuildID, user discord.User) (*api.SendMessageData, error) {
+	guildChannels, err := bot.State.Channels(guildID)
+	if err != nil {
+		return nil, err
+	}
+
+	var inviteChannel discord.Channel
+	// start off with a ridiculous position - our first channel must be below this.
+	var lowestChannelPosition int = 10000
+	for _, channel := range guildChannels {
+		if channel.Type == discord.GuildText && lowestChannelPosition > channel.Position {
+			inviteChannel = channel
+			lowestChannelPosition = channel.Position
+		}
+	}
+
+	invite, err := bot.State.CreateInvite(inviteChannel.ID, api.CreateInviteData{
+		MaxUses:        1,
+		Unique:         true,
+		AuditLogReason: api.AuditLogReason(fmt.Sprintf("%s failed authentication, so creating them an easy re-invite link", user.Username)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	reinviteMessageData := api.SendMessageData{
+		Components: []discord.Component{
+			&discord.ActionRowComponent{
+				Components: []discord.Component{
+					&discord.ButtonComponent{
+						Label: "Let's try again",
+						Emoji: &discord.ButtonEmoji{
+							Name: "🚶",
+						},
+						Style: discord.LinkButton,
+						URL:   fmt.Sprintf("https://discord.gg/%s", invite.Code),
+					},
+				},
+			},
+		},
+	}
+
+	return &reinviteMessageData, nil
 }
 
 // getVerifiedRole gets either the cached or the new "verified" role for the server.

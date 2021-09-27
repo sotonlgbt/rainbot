@@ -1,0 +1,7 @@
+Hi! I'm Rainbot, the University of Southampton LGBTQ+ Society's Discord bot. I can see you're currently in the {{.Server}} server, but you're not verified for it.
+
+Verification of our members is super important, as it means we can keep our society a safe and secure environment. **This server requires you to be verified as {{aOrAn .RequiredVerification.Name}}, but you're {{if .CurrentVerification}}currently verified as {{aOrAn .CurrentVerification.Name}}{{else}}not currently verified{{end}}.**
+
+Please verify your account as soon as you can. **In {{.Timeframe}}, accounts on this server that aren't verified for it will be removed.** You can verify yourself for the server by pressing the button below.
+
+Not {{aOrAn .RequiredVerification.Name}}? You won't be able to verify for this server, but there's other opportunities available for you! Take a look in the announcements or server updates channel, or email the committee on lgbt@soton.ac.uk.
