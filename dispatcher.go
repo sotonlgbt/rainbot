@@ -72,6 +72,16 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			if err != nil {
 				log.Fatalln("Invalid guild ID found for button with text", e.Data.CustomID)
 			}
+
+			// Send an interaction as we start the verification process to acknowledge the button
+			d.Bot.State.RespondInteraction(e.ID, e.Token, api.InteractionResponse{
+				Type: api.MessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Content: option.NewNullableString("Verification started! Your verified role has been removed temporarily while you verify yourself - as soon as this is done, it'll be back 😄"),
+					Flags:   api.EphemeralResponse,
+				},
+			})
+
 			err = d.Bot.VerifyUser(*e.User, discord.GuildID(guildSnowflake))
 		case e.Data.CustomID == "verifyme_button":
 			err = d.Bot.OnVerifyMeButton(e)
