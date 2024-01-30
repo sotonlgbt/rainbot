@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"reflect"
 	"strings"
 
 	"github.com/diamondburned/arikawa/v3/api"
@@ -19,7 +20,8 @@ type Dispatcher struct {
 // the relevant events to the bot.
 func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEvent) {
 	var err error
-	if e.Type == gateway.CommandInteraction {
+	switch data := e.Data.(type) {
+	case *discord.CommandInteraction:
 		if e.GuildID == 0 {
 			// not in a guild? waa
 			return
@@ -46,7 +48,7 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			return
 		}
 
-		switch e.Data.Name {
+		switch data.Name {
 		case "verification_button":
 			err = d.Bot.CreateVerificationButton(e)
 		case "pronoun_picker":
@@ -58,19 +60,20 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 		default:
 			return
 		}
-	} else if e.Type == gateway.ButtonInteraction {
+	case *discord.ButtonInteraction:
+		s := string(data.CustomID)
 		switch {
-		case strings.HasPrefix(e.Data.CustomID, colour_button_prefix):
-			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, colour_button_prefix), e.GuildID, "requested colour role")
-		case strings.HasPrefix(e.Data.CustomID, pronoun_button_prefix):
-			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, pronoun_button_prefix), e.GuildID, "requested pronoun role")
-		case strings.HasPrefix(e.Data.CustomID, role_button_prefix):
-			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(e.Data.CustomID, role_button_prefix), e.GuildID, "requested generic role")
-		case strings.HasPrefix(e.Data.CustomID, verify_button_guild_prefix):
+		case strings.HasPrefix(s, colour_button_prefix):
+			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(s, colour_button_prefix), e.GuildID, "requested colour role")
+		case strings.HasPrefix(s, pronoun_button_prefix):
+			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(s, pronoun_button_prefix), e.GuildID, "requested pronoun role")
+		case strings.HasPrefix(s, role_button_prefix):
+			err = d.Bot.InteractionToggleUserRole(e, e.Member, strings.TrimPrefix(s, role_button_prefix), e.GuildID, "requested generic role")
+		case strings.HasPrefix(s, verify_button_guild_prefix):
 			var guildSnowflake discord.Snowflake
-			guildSnowflake, err = discord.ParseSnowflake(strings.TrimPrefix(e.Data.CustomID, verify_button_guild_prefix))
+			guildSnowflake, err = discord.ParseSnowflake(strings.TrimPrefix(s, verify_button_guild_prefix))
 			if err != nil {
-				log.Fatalln("Invalid guild ID found for button with text", e.Data.CustomID)
+				log.Fatalln("Invalid guild ID found for button with text", s)
 			}
 
 			// Send an interaction as we start the verification process to acknowledge the button
@@ -83,16 +86,16 @@ func (d *Dispatcher) InteractionEventDispatcher(e *gateway.InteractionCreateEven
 			})
 
 			err = d.Bot.VerifyUser(*e.User, discord.GuildID(guildSnowflake))
-		case e.Data.CustomID == "verifyme_button":
+		case s == "verifyme_button":
 			err = d.Bot.OnVerifyMeButton(e)
 		default:
 			return
 		}
-	} else {
+	default:
 		return
 	}
 	if err != nil {
-		log.Println("Error in InteractionEventDispatcher for", e.Type, "of error", err)
+		log.Println("Error in InteractionEventDispatcher for", reflect.TypeOf(e), "of error", err)
 	}
 }
 

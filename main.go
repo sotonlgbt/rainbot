@@ -24,7 +24,7 @@ func main() {
 		log.Fatalf("Invalid snowflake for $APP_ID: %v", err)
 	}
 
-	s, err := state.New("Bot " + token)
+	s := state.New("Bot " + token)
 	if err != nil {
 		log.Fatalln("Session failed:", err)
 	}

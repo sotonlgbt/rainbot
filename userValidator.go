@@ -59,20 +59,18 @@ func (b *Bot) warnInvalidUsers(guildID discord.GuildID) {
 
 			b.State.SendMessageComplex(memberChannel.ID, api.SendMessageData{
 				Content: messageToSend.String(),
-				Components: []discord.Component{
+				Components: *discord.ComponentsPtr(
 					&discord.ActionRowComponent{
-						Components: []discord.Component{
-							&discord.ButtonComponent{
-								CustomID: "verifyme_button_guild_" + guildID.String(),
-								Label:    "Let's get verified!",
-								Emoji: &discord.ButtonEmoji{
-									Name: "🎉",
-								},
-								Style: discord.PrimaryButton,
+						&discord.ButtonComponent{
+							CustomID: discord.ComponentID("verifyme_button_guild_" + guildID.String()),
+							Label:    "Let's get verified!",
+							Emoji: &discord.ComponentEmoji{
+								Name: "🎉",
 							},
+							Style: discord.PrimaryButtonStyle(),
 						},
 					},
-				},
+				),
 			})
 		}
 	})

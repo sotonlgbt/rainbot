@@ -79,12 +79,12 @@ func (bot *Bot) CreateRolePicker(e *gateway.InteractionCreateEvent, guild discor
 // generateInteractionResponseWithButtons generates an InteractionResponse with a series of buttons,
 // in the appropriate number of action rows.
 func generateInteractionResponseWithButtons(prefix string, buttons []string, content string) api.InteractionResponse {
-	actionRows := []discord.Component{}
+	actionRows := discord.ContainerComponents{}
 
 	// Each row can only hold five components, so we need to do this for
 	// ceil(n/5) times.
 	for i := 0; i < int(math.Ceil(float64(len(buttons))/5)); i++ {
-		actionRowComponents := []discord.Component{}
+		actionRowComponents := discord.ActionRowComponent{}
 
 		limit := 5
 		// Reduce the limit if we have less than 5 buttons left
@@ -103,15 +103,13 @@ func generateInteractionResponseWithButtons(prefix string, buttons []string, con
 			thisButtonRuneArray[0] = unicode.ToUpper(thisButtonRuneArray[0])
 
 			actionRowComponents = append(actionRowComponents, &discord.ButtonComponent{
-				CustomID: prefix + thisButton,
+				CustomID: discord.ComponentID(prefix + thisButton),
 				Label:    string(thisButtonRuneArray),
-				Style:    discord.SecondaryButton,
+				Style:    discord.SecondaryButtonStyle(),
 			})
 		}
 
-		actionRows = append(actionRows, &discord.ActionRowComponent{
-			Components: actionRowComponents,
-		})
+		actionRows = append(actionRows, &actionRowComponents)
 	}
 
 	return api.InteractionResponse{
@@ -131,20 +129,18 @@ func (bot *Bot) CreateVerificationButton(e *gateway.InteractionCreateEvent) erro
 		Type: api.MessageInteractionWithSource,
 		Data: &api.InteractionResponseData{
 			Content: option.NewNullableString("Ready to get verified? Click here to start the process..."),
-			Components: &[]discord.Component{
+			Components: discord.ComponentsPtr(
 				&discord.ActionRowComponent{
-					Components: []discord.Component{
-						&discord.ButtonComponent{
-							CustomID: "verifyme_button",
-							Label:    "Let's get verified!",
-							Emoji: &discord.ButtonEmoji{
-								Name: "🎉",
-							},
-							Style: discord.PrimaryButton,
+					&discord.ButtonComponent{
+						CustomID: "verifyme_button",
+						Label:    "Let's get verified!",
+						Emoji: &discord.ComponentEmoji{
+							Name: "🎉",
 						},
+						Style: discord.PrimaryButtonStyle(),
 					},
 				},
-			},
+			),
 		},
 	}
 
@@ -291,25 +287,21 @@ func (bot *Bot) VerifyUser(user discord.User, guildID discord.GuildID) error {
 
 	bot.State.SendMessageComplex(memberChannel.ID, api.SendMessageData{
 		Content: "Hi, welcome to the LGBTQ+ Society server! To verify that you're a student, please click here, and sign in within the next 10 minutes 😃",
-		Components: []discord.Component{
+		Components: discord.ContainerComponents{
 			&discord.ActionRowComponent{
-				Components: []discord.Component{
-					&discord.ButtonComponent{
-						Label: "Click here to verify",
-						Emoji: &discord.ButtonEmoji{
-							Name: "🔑",
-						},
-						Style: discord.LinkButton,
-						URL:   getDiscordAuthLink(user),
+				&discord.ButtonComponent{
+					Label: "Click here to verify",
+					Emoji: &discord.ComponentEmoji{
+						Name: "🔑",
 					},
-					&discord.ButtonComponent{
-						Label: "Read our Member Data Policy",
-						Emoji: &discord.ButtonEmoji{
-							Name: "🔒",
-						},
-						Style: discord.LinkButton,
-						URL:   "https://www.sotonlgbt.org.uk/privacy",
+					Style: discord.LinkButtonStyle(getDiscordAuthLink(user)),
+				},
+				&discord.ButtonComponent{
+					Label: "Read our Member Data Policy",
+					Emoji: &discord.ComponentEmoji{
+						Name: "🔒",
 					},
+					Style: discord.LinkButtonStyle("https://www.sotonlgbt.org.uk/privacy"),
 				},
 			},
 		},
@@ -317,17 +309,15 @@ func (bot *Bot) VerifyUser(user discord.User, guildID discord.GuildID) error {
 
 	bot.State.SendMessageComplex(memberChannel.ID, api.SendMessageData{
 		Content: "Once you've verified, please click here!",
-		Components: []discord.Component{
+		Components: discord.ContainerComponents{
 			&discord.ActionRowComponent{
-				Components: []discord.Component{
-					&discord.ButtonComponent{
-						Label:    "I've verified!",
-						CustomID: "verified_button",
-						Emoji: &discord.ButtonEmoji{
-							Name: "✔️",
-						},
-						Style: discord.SuccessButton,
+				&discord.ButtonComponent{
+					Label:    "I've verified!",
+					CustomID: "verified_button",
+					Emoji: &discord.ComponentEmoji{
+						Name: "✔️",
 					},
+					Style: discord.SuccessButtonStyle(),
 				},
 			},
 		},
@@ -339,10 +329,13 @@ func (bot *Bot) VerifyUser(user discord.User, guildID discord.GuildID) error {
 		// Incoming event is a component interaction:
 		ci, ok := v.(*gateway.InteractionCreateEvent)
 		if ok {
-			if ci.Type == gateway.ButtonInteraction && ci.ChannelID == memberChannel.ID &&
-				ci.User.ID == user.ID && ci.Data.CustomID == "verified_button" {
-				interactionToRespondTo = ci
-				return true
+			switch d := ci.Data.(type) {
+			case *discord.ButtonInteraction:
+				if ci.ChannelID == memberChannel.ID && ci.User.ID == user.ID && d.CustomID == "verified_button" {
+					interactionToRespondTo = ci
+					return true
+				}
+			default:
 			}
 		}
 
@@ -401,8 +394,7 @@ repeatSelect:
 			data := api.InteractionResponse{
 				Type: api.UpdateMessage,
 				Data: &api.InteractionResponseData{
-					Content:    option.NewNullableString(message),
-					Components: &[]discord.Component{},
+					Content: option.NewNullableString(message),
 				},
 			}
 
@@ -479,17 +471,14 @@ func (bot *Bot) createReinviteMessage(guildID discord.GuildID, user discord.User
 	}
 
 	reinviteMessageData := api.SendMessageData{
-		Components: []discord.Component{
+		Components: discord.ContainerComponents{
 			&discord.ActionRowComponent{
-				Components: []discord.Component{
-					&discord.ButtonComponent{
-						Label: "Let's try again",
-						Emoji: &discord.ButtonEmoji{
-							Name: "🚶",
-						},
-						Style: discord.LinkButton,
-						URL:   fmt.Sprintf("https://discord.gg/%s", invite.Code),
+				&discord.ButtonComponent{
+					Label: "Let's try again",
+					Emoji: &discord.ComponentEmoji{
+						Name: "🚶",
 					},
+					Style: discord.LinkButtonStyle(fmt.Sprintf("https://discord.gg/%s", invite.Code)),
 				},
 			},
 		},
